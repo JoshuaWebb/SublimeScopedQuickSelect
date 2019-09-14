@@ -1,0 +1,19 @@
+[
+    {
+        "caption": "ScopedQuickSelect: All",
+        "command": "run_custom_script",
+        "args": {"scope": "all"},
+    },
+
+    {
+        "caption": "ScopedQuickSelect: Block",
+        "command": "run_custom_script",
+        "args": {"scope": "block"},
+    },
+
+    {
+        "caption": "ScopedQuickSelect: Function",
+        "command": "run_custom_script",
+        "args": {"scope": "functioin"},
+    },
+]
