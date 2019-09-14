@@ -15,8 +15,8 @@ class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
 		scoped_quick_select(self, self.view, edit, args["scope"])
 
-def scoped_quick_select(text_command, view, edit, scope):
-	l.debug(str(view.id()) + ' scoped_quick_select(' + scope +')')
+def scoped_quick_select(text_command, view, edit, target_scope):
+	l.debug(str(view.id()) + ' scoped_quick_select(' + target_scope +')')
 	all_sel = view.sel()
 
 	first_sel = all_sel[0];
@@ -35,23 +35,22 @@ def scoped_quick_select(text_command, view, edit, scope):
 	matches = view.find_all(regex)
 
 	scoped_matches = []
-	if (scope == "all"):
+	if (target_scope == "all"):
 		scoped_matches = matches
 
-	elif (scope == "function"):
+	elif (target_scope == "function"):
 		l.warn('TODO: implement')
 
-	elif (scope == "parens"):
+	elif (target_scope == "parens"):
 		l.warn('TODO: implement')
 
-	elif (scope == "block"):
+	elif (target_scope == "block"):
 		# TODO: Other language "blocks"
 		search_end = first_sel.a;
 		block_start = search_end;
 		while True:
 			# TODO: This is probably going to be a perf bottleneck
-			region_before = sublime.Region(0, search_end)
-			text_before = view.substr(region_before)
+			text_before = view.substr(sublime.Region(0, search_end))
 			block_start = text_before.rfind('{')
 
 			if block_start < 0:
@@ -61,6 +60,9 @@ def scoped_quick_select(text_command, view, edit, scope):
 
 			search_end = block_start - 1
 			brace_scopes = view.scope_name(block_start)
+			if any(scope.split('.')[0] == "comment" for scope in brace_scopes.split(' ')):
+				l.debug('commented open brace at ' + str(view.rowcol(block_start)))
+				continue
 
 			# TODO: Support languages that don't use meta.block
 			# we basically have to match block delimiters ourselves...
@@ -74,8 +76,7 @@ def scoped_quick_select(text_command, view, edit, scope):
 		view_end = view.size()
 		while True:
 			# TODO: This is probably going to be a perf bottleneck
-			region_after = sublime.Region(search_start, view_end)
-			text_after = view.substr(region_after)
+			text_after = view.substr(sublime.Region(search_start, view_end))
 			block_end = text_after.find('}')
 
 			if block_end < 0:
@@ -87,6 +88,10 @@ def scoped_quick_select(text_command, view, edit, scope):
 			search_start = block_end + 1
 
 			brace_scopes = view.scope_name(block_end)
+			if any(scope.split('.')[0] == "comment" for scope in brace_scopes.split(' ')):
+				l.debug('commented close brace at ' + str(view.rowcol(block_start)))
+				continue
+
 			num_blocks_of_brace = brace_scopes.count("meta.block")
 			if num_blocks_of_brace == num_blocks_of_cursor:
 				l.debug('found end brace: ' + str(block_end))
@@ -95,7 +100,7 @@ def scoped_quick_select(text_command, view, edit, scope):
 		block_region = sublime.Region(block_start, block_end)
 		scoped_matches = [block_region.intersection(m) for m in matches]
 	else:
-		l.warn('Unimplemented match scope: ' + str(scope))
+		l.warn('Unimplemented match target_scope: ' + str(target_scope))
 
 	scoped_matches = [m for m in scoped_matches if not m.empty()]
 
