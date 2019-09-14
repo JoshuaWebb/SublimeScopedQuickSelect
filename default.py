@@ -26,11 +26,21 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 
 	regex = ''
 	if first_sel.size() < 1:
-		l.debug('just a cursor: ')
-		regex = '\\b' + view.substr(view.word(first_sel)) + '\\b'
+		word_around_cursor = view.substr(view.word(first_sel))
+		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
+
+		if l.isEnabledFor(logging.DEBUG):
+			l.debug('just a cursor at ' + str(view.rowcol(first_sel.a)) +
+					' inside the word `' + word_around_cursor + "`")
 	else:
-		l.debug('some text selected: ')
-		regex = view.substr(first_sel)
+		selected_text = view.substr(first_sel)
+		regex = re.escape(selected_text)
+
+		if l.isEnabledFor(logging.DEBUG):
+			l.debug('some text ' +
+					'`' + selected_text + '`' +
+					' selected at ' + str(view.rowcol(first_sel.a)) +
+					' to ' + str(view.rowcol(first_sel.b)))
 
 	matches = view.find_all(regex)
 
