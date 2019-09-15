@@ -1,0 +1,15 @@
+{
+    // http://www.sublimetext.com/docs/3/color_schemes.html
+    "variables": {
+        // "green": "#FF0000",
+    },
+    "globals": {
+        // "foreground": "var(green)",
+    },
+    "rules": [
+        {
+            "scope": "scoped_quick_select.scope_marker",
+            "foreground": "#FFCB6B",
+        },
+    ],
+}

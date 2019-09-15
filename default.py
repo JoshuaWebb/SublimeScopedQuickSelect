@@ -2,6 +2,8 @@ import sublime
 import sublime_plugin
 import logging
 import re
+import os
+import shutil
 from threading import Timer
 
 DEFAULT_LOG_LEVEL = logging.DEBUG
@@ -257,30 +259,30 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 		view.show(last_match)
 		all_sel.add_all(scoped_matches)
 
-def on_activated_async(view):
-	l.debug(str(view.id()) + ' on_activated_async')
-
-def on_load_async(view):
-	l.debug(str(view.id()) + ' on_load_async')
-
-def settings_changed(view):
-	l.debug(str(view.id()) + ' settings_changed')
-
-class CustomScript(sublime_plugin.EventListener):
+class ScopedQuickSelectListener(sublime_plugin.EventListener):
 	registered_views = set()
+	color_schemes = set()
 
 	def __init__(self):
 		pass
 
 	def on_activated_async(self, view):
 		if view.id() not in self.registered_views:
-			l.debug('registering ' + str(view.id()))
-			settings = view.settings()
-			settings.clear_on_change(PLUGIN_KEY)
-			settings.add_on_change(PLUGIN_KEY, lambda: settings_changed(view))
-			self.registered_views.add(view.id())
+			self.on_first_activation_async(view)
 
-		on_activated_async(view)
+		# Every activation:
+		pass
+
+	def on_first_activation_async(self, view):
+		l.debug('registering ' + str(view.id()))
+
+		settings = view.settings()
+		settings.clear_on_change(PLUGIN_KEY)
+		settings.add_on_change(PLUGIN_KEY, lambda: self.settings_changed(view))
+
+		self.setup_color_scheme(view)
+
+		self.registered_views.add(view.id())
 
 	def on_pre_close(self, view):
 		l.debug('removing view ' + str(view.id()))
@@ -288,6 +290,39 @@ class CustomScript(sublime_plugin.EventListener):
 
 	def on_load_async(self, view):
 		on_load_async(view)
+
+	def settings_changed(self, view):
+		self.setup_color_scheme(view)
+
+	def setup_color_scheme(self, view):
+		current_color_scheme = view.settings().get("color_scheme")
+
+		if current_color_scheme is None:
+			return
+
+		# NOTE: Only do it once per plugin activation.
+		# We don't want to bail out if it already exists because we
+		# want to be able to update the source and have it be copied
+		# again then next time the plugin is loaded.
+		if current_color_scheme in self.color_schemes:
+			return
+
+		self.color_schemes.add(current_color_scheme)
+
+		plugin_dir = os.path.join(sublime.packages_path(), PLUGIN_KEY)
+
+		# Copy our override rules to a new colour scheme file
+		# inside our plugin directory, with the same name as the
+		# active colour scheme.
+		color_schemes_dir = os.path.join(plugin_dir, 'color_schemes')
+		os.makedirs(color_schemes_dir, exist_ok = True)
+
+		scheme_name = os.path.splitext(os.path.basename(current_color_scheme))[0]
+		scheme_dest_path = os.path.join(color_schemes_dir, scheme_name + os.extsep + "sublime-color-scheme")
+
+		source_scheme_path = os.path.join(plugin_dir, 'Default.sublime-color-scheme')
+		l_debug("copying '{source}' to '{dest}'", source=source_scheme_path, dest=scheme_dest_path)
+		shutil.copy(source_scheme_path, scheme_dest_path)
 
 def l_debug(msg, **kwargs):
 	l.debug(msg.format(**kwargs))
