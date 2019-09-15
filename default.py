@@ -12,8 +12,31 @@ l = logging.getLogger(__name__)
 PLUGIN_KEY = 'ScopedQuickSelect'
 SCOPE_MARKERS_KEY = PLUGIN_KEY + 'scope_markers'
 
-SET_SCOPE_PER_VIEW = {}
-ALL_MATCHES_IN_SCOPE = {}
+# TODO: If we made these "immutable" and/or kept copies of these
+# per "edit" we could check the command_history and roll-back
+# the whole state instead of trying to re-create it?
+VIEW_DATA = {}
+
+class IncrementalMatch:
+	__slots__ = ["selected", "region"]
+
+	def __init__(self, selected, region):
+		self.selected = selected
+		self.region = region
+
+class ViewData:
+	__slots__ = [
+		"original_cursor_location",
+		"visited_matches",
+		"wrapped",
+		"pattern",
+	]
+
+	def __init__(self):
+		self.original_cursor_location = None
+		self.visited_matches = []
+		self.wrapped = False
+		self.pattern = None
 
 class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
@@ -29,7 +52,7 @@ class ClearQuickSelectScope(sublime_plugin.TextCommand):
 
 class IncrementalQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
-		incremental_quick_select(self, self.view, edit, bool(args["add"]))
+		incremental_quick_select(self, self.view, edit, args["add"].casefold() == "True".casefold())
 
 # TODO: use `view.match_selector()` instead?
 def has_comment_scope(scopes):
@@ -54,13 +77,12 @@ def get_quick_select_scope(view, first_sel, target_scope):
 		# TODO: Need to be careful about escaped quotes here
 		l.warn('TODO: implement')
 	elif (target_scope == "block"):
-		cursor_scopes = view.scope_name(first_sel.a)
+		cursor_scopes = view.scope_name(first_sel.begin())
 		num_blocks_of_cursor = cursor_scopes.count("meta.block")
 
 		# TODO: multiple calls in a row to expand out by a block?
-		# TODO: iterative one at a time mode with option to skip?
 		# TODO: Other language "blocks"
-		search_end = first_sel.a;
+		search_end = first_sel.begin();
 		block_start = search_end;
 		while True:
 			# TODO: This is probably going to be a perf bottleneck
@@ -85,7 +107,7 @@ def get_quick_select_scope(view, first_sel, target_scope):
 				l.debug('found start brace: ' + str(block_start))
 				break
 
-		search_start = first_sel.b;
+		search_start = first_sel.end();
 		block_end = search_start;
 		view_end = view.size()
 		while True:
@@ -123,9 +145,9 @@ def clear_quick_select_scope(text_command, view, edit):
 
 	key = view.id()
 	view.erase_regions(SCOPE_MARKERS_KEY)
-	if key in SET_SCOPE_PER_VIEW:
-		del SET_SCOPE_PER_VIEW[key]
-		l_debug('Cleared scope for view ' + key)
+	if key in VIEW_DATA:
+		VIEW_DATA[key] = ViewData()
+		l_debug('Cleared scope for view ' + str(key))
 
 def set_quick_select_scope(text_command, view, edit, target_scope):
 	l_debug('view {view_id} set_quick_select_scope({target_scope})',
@@ -135,32 +157,160 @@ def set_quick_select_scope(text_command, view, edit, target_scope):
 
 	scope_region = get_quick_select_scope(view, first_sel, target_scope)
 	key = view.id()
+
+	view_data = VIEW_DATA.setdefault(key, ViewData())
+	view_data.visited_matches = []
+	view_data.pattern = None
+	view_data.wrapped = False
+	view_data.original_cursor_location = None
+
 	if (scope_region.empty()):
-		if key in SET_SCOPE_PER_VIEW:
-			del SET_SCOPE_PER_VIEW[key]
-		l_debug('Cleared scope for view ' + key)
+		VIEW_DATA[key] = ViewData()
+		l.debug('Cleared scope for view ' + str(key))
 		view.erase_regions(SCOPE_MARKERS_KEY)
 	else:
 		l_debug('Set scope {start} to {end}',
-				start=view.rowcol(scope_region.a),
-				end=view.rowcol(scope_region.b))
+				start=view.rowcol(scope_region.begin()),
+				end=view.rowcol(scope_region.end()))
 
-		scope_markers = [sublime.Region(scope_region.a, scope_region.a),
-						 sublime.Region(scope_region.b, scope_region.b)]
+		scope_markers = [sublime.Region(scope_region.begin(), scope_region.begin()),
+						 sublime.Region(scope_region.end(), scope_region.end())]
 
 		view.add_regions(SCOPE_MARKERS_KEY, scope_markers,
 		                 'scoped_quick_select.scope_marker',
 		                 flags=sublime.DRAW_EMPTY)
 
-		SET_SCOPE_PER_VIEW[key] = scope_region
+		view.show(scope_region.end())
+
+def get_marked_scope_region(view):
+	marked_regions = view.get_regions(SCOPE_MARKERS_KEY)
+	if len(marked_regions) < 2:
+		# Clean up any single dangling region
+		view.erase_regions(SCOPE_MARKERS_KEY)
+		return None
+
+	start = marked_regions[0]
+	end = marked_regions[-1]
+	return sublime.Region(start.begin(), end.end())
 
 def incremental_quick_select(text_command, view, edit, add):
 	l_debug('view {view_id} incremental_quick_select({add})',
 	        view_id = view.id(), add = add)
-	pass
+
+	view_data = VIEW_DATA.setdefault(view.id(), ViewData())
+
+	external_selection_change = False
+	for visited in view_data.visited_matches:
+		if not (view.sel().contains(visited.region) == visited.selected):
+			external_selection_change = True
+			break
+
+	keep_original_pattern = False
+	undo_count = 0
+	if external_selection_change:
+		l.debug('selection changed!')
+		redo_index = 1
+
+		(most_recent_command, _, _) = view.command_history(0)
+
+		# NOTE: This is definitely not how you're supposed to handle this
+		# but it works for the simple case of determining between the
+		# selection changing because the user moved the cursor manually
+		# and because they just did a "soft undo" (possibly repeatedly)
+		if most_recent_command == incremental_quick_select.__name__:
+			while True:
+				command_history = view.command_history(redo_index)
+				l.debug(str(command_history))
+				(redo_command, redo_args, repetitions) = command_history
+				redo_index += 1
+				if repetitions == 0:
+					break
+
+				if redo_command == incremental_quick_select.__name__:
+					undo_count += repetitions
+
+		view_data.wrapped = False
+
+		if undo_count == 0:
+			view_data.visited_matches = []
+			view_data.original_cursor_location = None
+		else:
+			keep_original_pattern = True
+			for i in range(undo_count):
+				if view_data.visited_matches:
+					view_data.visited_matches.pop()
+
+
+	# TODO: expand any single cursors to the surrounding words,
+	# but then carry on as usual
+
+	token = edit.edit_token
+
+	# NOTE: make sure each selection counts as it's own undo
+	view.end_edit(edit)
+	subedit = view.begin_edit(token, text_command.name())
+	try:
+		scope_region = get_marked_scope_region(view)
+		if scope_region is None:
+			scope_region = sublime.Region(0, view.size())
+
+		if (   view_data.original_cursor_location is None
+			or view_data.pattern is None):
+			original_selection = view.sel()[-1]
+
+			if not keep_original_pattern:
+				view_data.pattern = get_pattern_for_selection(view, original_selection)
+
+			if original_selection.size() < 1:
+				word_region = view.word(original_selection)
+				view_data.original_cursor_location = word_region.begin()
+				most_recent_cursor_location = word_region.begin()
+			else:
+				view_data.original_cursor_location = original_selection.begin()
+				most_recent_cursor_location = original_selection.end()
+		else:
+			if view_data.visited_matches:
+				most_recent_cursor_location = view_data.visited_matches[-1].region.end()
+			else:
+				most_recent_cursor_location = view_data.original_cursor_location
+
+		next_match_no_wrap = view.find(view_data.pattern, most_recent_cursor_location)
+		next_match = next_match_no_wrap
+		if not scope_region.contains(next_match):
+			# No match found between `most_recent_cursor_location`
+			# and scope_region.end(), try from the start of the region
+			next_match = view.find(view_data.pattern, scope_region.begin())
+			view_data.wrapped = True
+
+		if next_match_no_wrap.a == -1 and next_match.a == -1:
+			view.window().status_message("Could not automatically match text at cursor")
+			return
+
+		if view_data.wrapped and next_match.begin() >= view_data.original_cursor_location:
+			if not add:
+				if view_data.visited_matches:
+					previous_visit = view_data.visited_matches[-1]
+					previous_visit.selected = False
+					view.sel().subtract(previous_visit.region)
+			view.window().status_message("Incremental select complete")
+			return
+
+		if add:
+			view.sel().add(next_match)
+		else:
+			if view_data.visited_matches:
+				previous_visit = view_data.visited_matches[-1]
+				previous_visit.selected = False
+				view.sel().subtract(previous_visit.region)
+			view.sel().add(next_match)
+
+		view_data.visited_matches.append(IncrementalMatch(True, next_match))
+		view.show(next_match)
+	finally:
+		view.end_edit(subedit)
 
 def get_delimited_scope_region(view, original_selection, open_delim, close_delim, name):
-	search_end = original_selection.a
+	search_end = original_selection.begin()
 	intial_scopes = view.scope_name
 	block_start = search_end
 	num_unmatched_delimiters = 0
@@ -201,7 +351,7 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 		num_unmatched_delimiters -= 1
 
 
-	search_start = original_selection.b;
+	search_start = original_selection.end();
 	block_end = search_start;
 	view_end = view.size()
 	while search_start < view_end:
@@ -251,25 +401,25 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 	scope_region = sublime.Region(block_start, block_end)
 	return scope_region
 
-def get_pattern_for_cursor():
-	if first_sel.size() < 1:
-		word_around_cursor = view.substr(view.word(first_sel))
+def get_pattern_for_selection(view, selection):
+	if selection.size() < 1:
+		word_around_cursor = view.substr(view.word(selection))
 		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
 
 		if l.isEnabledFor(logging.DEBUG):
 			l_debug('just a cursor at {cursor_pos} inside the word `{word}`',
-			        cursor_pos = view.rowcol(first_sel.a),
+			        cursor_pos = view.rowcol(selection.begin()),
 			        word = word_around_cursor)
 	else:
-		selected_text = view.substr(first_sel)
+		selected_text = view.substr(selection)
 		regex = re.escape(selected_text)
 
 		if l.isEnabledFor(logging.DEBUG):
 			l_debug('some text `{selected_text}`'
 			        ' selected at {start_pos} to {end_pos}',
 			        selected_text = selected_text,
-			        start_pos = view.rowcol(first_sel.a),
-			        end_pos = view.rowcol(first_sel.b))
+			        start_pos = view.rowcol(selection.begin()),
+			        end_pos = view.rowcol(selection.end()))
 
 	return regex
 
@@ -277,13 +427,13 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 	l_debug('view {view_id} scoped_quick_select({target_scope})',
 	        view_id = view.id(), target_scope = target_scope)
 	all_sel = view.sel()
-	first_sel = all_sel[0];
+	selection = all_sel[0];
 
-	regex = get_pattern_for_cursor()
+	regex = get_pattern_for_selection(view, selection)
 
 	matches = view.find_all(regex)
 
-	scope_region = get_quick_select_scope(view, first_sel, target_scope)
+	scope_region = get_quick_select_scope(view, selection, target_scope)
 	if scope_region.empty():
 		scoped_matches = []
 	else:
@@ -318,6 +468,7 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 		settings.add_on_change(PLUGIN_KEY, lambda: self.settings_changed(view))
 
 		self.setup_color_scheme(view)
+		view.erase_regions(SCOPE_MARKERS_KEY)
 
 		self.registered_views.add(view.id())
 
