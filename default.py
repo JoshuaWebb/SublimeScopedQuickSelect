@@ -9,160 +9,46 @@ l = logging.getLogger(__name__)
 
 PLUGIN_KEY = 'ScopedQuickSelect'
 
-PREVIOUS_KEYWORDS_PER_VIEW = {}
+SET_SCOPE_PER_VIEW = {}
 
 class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
 		scoped_quick_select(self, self.view, edit, args["scope"])
 
-def scoped_quick_select(text_command, view, edit, target_scope):
-	l_debug('view {view_id} scoped_quick_select({target_scope})',
-			  view_id = view.id(), target_scope = target_scope)
-	all_sel = view.sel()
+class SetQuickSelectScope(sublime_plugin.TextCommand):
+	def run(self, edit, **args):
+		set_quick_select_scope(self, self.view, edit, args["scope"])
 
-	first_sel = all_sel[0];
+class IncrementalQuickSelect(sublime_plugin.TextCommand):
+	def run(self, edit, **args):
+		incremental_quick_select(self, self.view, edit, bool(args["select"]))
 
-	cursor_scopes = view.scope_name(first_sel.a)
-	num_blocks_of_cursor = cursor_scopes.count("meta.block")
+# TODO: use `view.match_selector()` instead?
+def has_comment_scope(scopes):
+	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
 
-	regex = ''
-	if first_sel.size() < 1:
-		word_around_cursor = view.substr(view.word(first_sel))
-		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
-
-		if l.isEnabledFor(logging.DEBUG):
-			l_debug('just a cursor at {cursor_pos} inside the word `{word}`',
-			        cursor_pos = view.rowcol(first_sel.a),
-			        word = word_around_cursor)
-	else:
-		selected_text = view.substr(first_sel)
-		regex = re.escape(selected_text)
-
-		if l.isEnabledFor(logging.DEBUG):
-			l_debug('some text `{selected_text}`'
-			        ' selected at {start_pos} to {end_pos}',
-			        selected_text = selected_text,
-			        start_pos = view.rowcol(first_sel.a),
-			        end_pos = view.rowcol(first_sel.b))
-
-	matches = view.find_all(regex)
-
-	def has_comment_scope(scopes):
-		return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
-
-	def get_scoped_matches_by_delimiters(open_delim, close_delim, name):
-		search_end = first_sel.a
-		intial_scopes = view.scope_name
-		block_start = search_end
-		num_unmatched_delimiters = 0
-		while search_end > 0:
-			# TODO: This is probably going to be a perf bottleneck
-			text_before = view.substr(sublime.Region(0, search_end))
-			block_start = text_before.rfind(open_delim)
-			other_block_end = text_before.rfind(close_delim)
-
-			if block_start < 0:
-				l.debug('reached start of buffer')
-				view.window().status_message('No matching open ' + name)
-				return []
-
-			if other_block_end > block_start:
-				other_delim_scopes = view.scope_name(other_block_end)
-				if not has_comment_scope(other_delim_scopes):
-					num_unmatched_delimiters += 1
-				search_end = other_block_end - 1
-				continue
-
-			search_end = block_start - 1
-			delim_scopes = view.scope_name(block_start)
-			# TODO: Allow scoping to delimiters inside comments? (e.g. like this)
-			# I think I want this to be scoped to a single comment "block"
-			# which means consecutive single line comments, or a single
-			# block comment for languages that support them
-			if has_comment_scope(delim_scopes):
-				l.debug('commented open ' + name + ' at ' + str(view.rowcol(block_start)))
-				continue
-
-			if num_unmatched_delimiters == 0:
-				break
-
-			num_unmatched_delimiters -= 1
-
-
-		search_start = first_sel.b;
-		block_end = search_start;
-		view_end = view.size()
-		while search_start < view_end:
-			# l_debug('Searching for close {name} between {start} to {end}',
-			# 		name=name,
-			# 		start=view.rowcol(search_start),
-			# 		end=view.rowcol(view_end))
-
-			# TODO: This is probably going to be a perf bottleneck
-			text_after = view.substr(sublime.Region(search_start, view_end))
-			block_end = text_after.find(close_delim)
-			other_block_start = text_after.find(open_delim)
-
-			if block_end < 0:
-				l.debug('reached end of buffer')
-				view.window().status_message('No matching close ' + name)
-				return []
-
-			block_end += search_start
-
-			if other_block_start > 0:
-				other_block_start += search_start
-				if other_block_start < block_end:
-					other_delim_scopes = view.scope_name(other_block_start)
-					if not has_comment_scope(other_delim_scopes):
-						num_unmatched_delimiters += 1
-						#l_debug('Found open {name} at {position}', name=name, position=view.rowcol(other_block_start))
-					#else:
-					#	l_debug('Found commented open {name} at {position}', name=name, position=view.rowcol(other_block_start))
-					search_start = other_block_start + 1
-					continue
-
-			search_start = block_end + 1
-
-			delim_scopes = view.scope_name(block_end)
-			if has_comment_scope(delim_scopes):
-				#l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
-				continue
-
-			if num_unmatched_delimiters == 0:
-				break
-
-			num_unmatched_delimiters -= 1
-
-		l.debug(str(name) + ' scope bounds: ' + str(view.rowcol(block_start)) + ' to ' + str(view.rowcol(block_end)))
-		block_region = sublime.Region(block_start, block_end)
-		return [block_region.intersection(m) for m in matches]
-
-	scoped_matches = []
+def get_quick_select_scope(view, first_sel, target_scope):
+	scope_region = sublime.Region(0, 0)
 	if (target_scope == "all"):
-		scoped_matches = matches
-
+		scope_region = sublime.Region(0, view.size())
 	elif (target_scope == "function"):
 		l.warn('TODO: implement')
-
 	elif (target_scope == "parentheses"):
-		scoped_matches = get_scoped_matches_by_delimiters('(', ')', 'parenthesis')
-
+		scope_region = get_delimited_scope_region(view, first_sel, '(', ')', 'parenthesis')
 	elif (target_scope == "square brackets"):
-		scoped_matches = get_scoped_matches_by_delimiters('[', ']', 'square bracket')
-
+		scope_region = get_delimited_scope_region(view, first_sel, '[', ']', 'square bracket')
 	elif (target_scope == "angle brackets"):
-		scoped_matches = get_scoped_matches_by_delimiters('<', '>', 'angle bracket')
-
+		scope_region = get_delimited_scope_region(view, first_sel, '<', '>', 'angle bracket')
 	elif (target_scope == "single quotes"):
 		# TODO: Need to be careful about escaped quotes here
 		l.warn('TODO: implement')
-
 	elif (target_scope == "double quotes"):
 		# TODO: Need to be careful about escaped quotes here
 		l.warn('TODO: implement')
-
 	elif (target_scope == "block"):
+		cursor_scopes = view.scope_name(first_sel.a)
+		num_blocks_of_cursor = cursor_scopes.count("meta.block")
+
 		# TODO: multiple calls in a row to expand out by a block?
 		# TODO: iterative one at a time mode with option to skip?
 		# TODO: Other language "blocks"
@@ -217,10 +103,152 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 				l.debug('found end brace: ' + str(block_end))
 				break
 
-		block_region = sublime.Region(block_start, block_end)
-		scoped_matches = [block_region.intersection(m) for m in matches]
+		scope_region = sublime.Region(block_start, block_end)
 	else:
 		l.warn('Unimplemented match target_scope: ' + str(target_scope))
+
+	return scope_region
+
+def set_quick_select_scope(text_command, view, edit, target_scope):
+	l_debug('view {view_id} set_quick_select_scope({target_scope})',
+	        view_id = view.id(), target_scope = target_scope)
+	all_sel = view.sel()
+	first_sel = all_sel[0];
+
+	scope_region = get_quick_select_scope(view, first_sel, target_scope)
+	key = view.id()
+	if (scope_region.empty()):
+		if key in SET_SCOPE_PER_VIEW:
+			del SET_SCOPE_PER_VIEW[key]
+	else:
+		SET_SCOPE_PER_VIEW[key] = scope_region
+
+def incremental_quick_select(text_command, view, edit, select):
+	l_debug('view {view_id} incremental_quick_select({select})',
+	        view_id = view.id(), select = select)
+	pass
+
+def get_delimited_scope_region(view, original_selection, open_delim, close_delim, name):
+	search_end = original_selection.a
+	intial_scopes = view.scope_name
+	block_start = search_end
+	num_unmatched_delimiters = 0
+	while search_end > 0:
+		# TODO: This is probably going to be a perf bottleneck
+		text_before = view.substr(sublime.Region(0, search_end))
+		block_start = text_before.rfind(open_delim)
+		other_block_end = text_before.rfind(close_delim)
+
+		if block_start < 0:
+			l.debug('reached start of buffer')
+			view.window().status_message('No matching open ' + name)
+			return sublime.Region(0, 0)
+
+		if other_block_end > block_start:
+			other_delim_scopes = view.scope_name(other_block_end)
+			if not has_comment_scope(other_delim_scopes):
+				num_unmatched_delimiters += 1
+			search_end = other_block_end - 1
+			continue
+
+		search_end = block_start - 1
+		delim_scopes = view.scope_name(block_start)
+		# TODO: Allow scoping to delimiters inside comments? (e.g. like this)
+		# I think I want this to be scoped to a single comment "block"
+		# which means consecutive single line comments, or a single
+		# block comment for languages that support them
+		if has_comment_scope(delim_scopes):
+			l.debug('commented open ' + name + ' at ' + str(view.rowcol(block_start)))
+			continue
+
+		if num_unmatched_delimiters == 0:
+			break
+
+		num_unmatched_delimiters -= 1
+
+
+	search_start = original_selection.b;
+	block_end = search_start;
+	view_end = view.size()
+	while search_start < view_end:
+		# l_debug('Searching for close {name} between {start} to {end}',
+		# 		name=name,
+		# 		start=view.rowcol(search_start),
+		# 		end=view.rowcol(view_end))
+
+		# TODO: This is probably going to be a perf bottleneck
+		text_after = view.substr(sublime.Region(search_start, view_end))
+		block_end = text_after.find(close_delim)
+		other_block_start = text_after.find(open_delim)
+
+		if block_end < 0:
+			l.debug('reached end of buffer')
+			view.window().status_message('No matching close ' + name)
+			return sublime.Region(0, 0)
+
+		block_end += search_start
+
+		if other_block_start > 0:
+			other_block_start += search_start
+			if other_block_start < block_end:
+				other_delim_scopes = view.scope_name(other_block_start)
+				if not has_comment_scope(other_delim_scopes):
+					num_unmatched_delimiters += 1
+					#l_debug('Found open {name} at {position}', name=name, position=view.rowcol(other_block_start))
+				#else:
+				#	l_debug('Found commented open {name} at {position}', name=name, position=view.rowcol(other_block_start))
+				search_start = other_block_start + 1
+				continue
+
+		search_start = block_end + 1
+
+		delim_scopes = view.scope_name(block_end)
+		if has_comment_scope(delim_scopes):
+			#l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
+			continue
+
+		if num_unmatched_delimiters == 0:
+			break
+
+		num_unmatched_delimiters -= 1
+
+	l.debug(str(name) + ' scope bounds: ' + str(view.rowcol(block_start)) + ' to ' + str(view.rowcol(block_end)))
+	scope_region = sublime.Region(block_start, block_end)
+	return scope_region
+
+def scoped_quick_select(text_command, view, edit, target_scope):
+	l_debug('view {view_id} scoped_quick_select({target_scope})',
+	        view_id = view.id(), target_scope = target_scope)
+	all_sel = view.sel()
+	first_sel = all_sel[0];
+
+	regex = ''
+	if first_sel.size() < 1:
+		word_around_cursor = view.substr(view.word(first_sel))
+		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
+
+		if l.isEnabledFor(logging.DEBUG):
+			l_debug('just a cursor at {cursor_pos} inside the word `{word}`',
+			        cursor_pos = view.rowcol(first_sel.a),
+			        word = word_around_cursor)
+	else:
+		selected_text = view.substr(first_sel)
+		regex = re.escape(selected_text)
+
+		if l.isEnabledFor(logging.DEBUG):
+			l_debug('some text `{selected_text}`'
+			        ' selected at {start_pos} to {end_pos}',
+			        selected_text = selected_text,
+			        start_pos = view.rowcol(first_sel.a),
+			        end_pos = view.rowcol(first_sel.b))
+
+	matches = view.find_all(regex)
+
+	scope_region = get_quick_select_scope(view, first_sel, target_scope)
+	if scope_region.empty():
+		scoped_matches = []
+	else:
+		scoped_matches = [scope_region.intersection(m) for m in matches]
 
 	scoped_matches = [m for m in scoped_matches if not m.empty()]
 

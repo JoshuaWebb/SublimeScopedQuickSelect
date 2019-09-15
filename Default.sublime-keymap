@@ -1,66 +1,108 @@
 [
     {
-        "keys": ["primary+alt+d", "primary+alt+a"],
+        "keys": ["alt+s", "a"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "all"},
+    },
+
+    {
+        "keys": ["alt+s", "f"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "function"},
+    },
+
+    {
+        "keys": ["alt+s", "b"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "block"},
+    },
+
+    {
+        "keys": ["alt+s", "/"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "comment"},
+    },
+
+    {
+        "keys": ["alt+d"],
+        "command": "incremental_quick_select",
+        "args": {"select": "True"},
+    },
+
+    {
+        "keys": ["alt+c"],
+        "command": "incremental_quick_select",
+        "args": {"select": "False"},
+    },
+
+    {
+        "keys": ["primary+shift+alt+d", "primary+shift+alt+a"],
         "command": "scoped_quick_select",
         "args": {"scope": "all"},
     },
 
     {
-        "keys": ["primary+alt+d", "primary+alt+f"],
+        "keys": ["primary+shift+alt+d", "primary+shift+alt+f"],
         "command": "scoped_quick_select",
         "args": {"scope": "function"},
     },
 
     {
-        "keys": ["primary+alt+d", "primary+alt+b"],
+        "keys": ["primary+shift+alt+d", "primary+shift+alt+b"],
         "command": "scoped_quick_select",
         "args": {"scope": "block"},
     },
 
     {
-        "keys": ["primary+alt+d", "("],
+        "keys": ["primary+shift+alt+d", "primary+shift+alt+/"],
+        "command": "scoped_quick_select",
+        "args": {"scope": "comment"},
+    },
+
+    {
+        "keys": ["primary+shift+alt+d", "("],
         "command": "scoped_quick_select",
         "args": {"scope": "parentheses"},
     },
 
     {
-        "keys": ["primary+alt+d", ")"],
+        "keys": ["primary+shift+alt+d", ")"],
         "command": "scoped_quick_select",
         "args": {"scope": "parentheses"},
     },
 
     {
-        "keys": ["primary+alt+d", "["],
+        "keys": ["primary+shift+alt+d", "["],
         "command": "scoped_quick_select",
         "args": {"scope": "square brackets"},
     },
 
     {
-        "keys": ["primary+alt+d", "]"],
+        "keys": ["primary+shift+alt+d", "]"],
         "command": "scoped_quick_select",
         "args": {"scope": "square brackets"},
     },
 
     {
-        "keys": ["primary+alt+d", "<"],
+        "keys": ["primary+shift+alt+d", "<"],
         "command": "scoped_quick_select",
         "args": {"scope": "angle brackets"},
     },
 
     {
-        "keys": ["primary+alt+d", ">"],
+        "keys": ["primary+shift+alt+d", ">"],
         "command": "scoped_quick_select",
         "args": {"scope": "angle brackets"},
     },
 
     {
-        "keys": ["primary+alt+d", "'"],
+        "keys": ["primary+shift+alt+d", "'"],
         "command": "scoped_quick_select",
         "args": {"scope": "single quotes"},
     },
 
     {
-        "keys": ["primary+alt+d", "\""],
+        "keys": ["primary+shift+alt+d", "\""],
         "command": "scoped_quick_select",
         "args": {"scope": "double quotes"},
     },
