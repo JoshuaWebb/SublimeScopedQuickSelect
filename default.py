@@ -10,8 +10,10 @@ DEFAULT_LOG_LEVEL = logging.DEBUG
 l = logging.getLogger(__name__)
 
 PLUGIN_KEY = 'ScopedQuickSelect'
+SCOPE_MARKERS_KEY = PLUGIN_KEY + 'scope_markers'
 
 SET_SCOPE_PER_VIEW = {}
+ALL_MATCHES_IN_SCOPE = {}
 
 class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
@@ -21,9 +23,13 @@ class SetQuickSelectScope(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
 		set_quick_select_scope(self, self.view, edit, args["scope"])
 
+class ClearQuickSelectScope(sublime_plugin.TextCommand):
+	def run(self, edit, **args):
+		clear_quick_select_scope(self, self.view, edit)
+
 class IncrementalQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
-		incremental_quick_select(self, self.view, edit, bool(args["select"]))
+		incremental_quick_select(self, self.view, edit, bool(args["add"]))
 
 # TODO: use `view.match_selector()` instead?
 def has_comment_scope(scopes):
@@ -111,6 +117,16 @@ def get_quick_select_scope(view, first_sel, target_scope):
 
 	return scope_region
 
+def clear_quick_select_scope(text_command, view, edit):
+	l_debug('view {view_id} clear_quick_select_scope()',
+	        view_id = view.id())
+
+	key = view.id()
+	view.erase_regions(SCOPE_MARKERS_KEY)
+	if key in SET_SCOPE_PER_VIEW:
+		del SET_SCOPE_PER_VIEW[key]
+		l_debug('Cleared scope for view ' + key)
+
 def set_quick_select_scope(text_command, view, edit, target_scope):
 	l_debug('view {view_id} set_quick_select_scope({target_scope})',
 	        view_id = view.id(), target_scope = target_scope)
@@ -122,12 +138,25 @@ def set_quick_select_scope(text_command, view, edit, target_scope):
 	if (scope_region.empty()):
 		if key in SET_SCOPE_PER_VIEW:
 			del SET_SCOPE_PER_VIEW[key]
+		l_debug('Cleared scope for view ' + key)
+		view.erase_regions(SCOPE_MARKERS_KEY)
 	else:
+		l_debug('Set scope {start} to {end}',
+				start=view.rowcol(scope_region.a),
+				end=view.rowcol(scope_region.b))
+
+		scope_markers = [sublime.Region(scope_region.a, scope_region.a),
+						 sublime.Region(scope_region.b, scope_region.b)]
+
+		view.add_regions(SCOPE_MARKERS_KEY, scope_markers,
+		                 'scoped_quick_select.scope_marker',
+		                 flags=sublime.DRAW_EMPTY)
+
 		SET_SCOPE_PER_VIEW[key] = scope_region
 
-def incremental_quick_select(text_command, view, edit, select):
-	l_debug('view {view_id} incremental_quick_select({select})',
-	        view_id = view.id(), select = select)
+def incremental_quick_select(text_command, view, edit, add):
+	l_debug('view {view_id} incremental_quick_select({add})',
+	        view_id = view.id(), add = add)
 	pass
 
 def get_delimited_scope_region(view, original_selection, open_delim, close_delim, name):
@@ -135,6 +164,8 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 	intial_scopes = view.scope_name
 	block_start = search_end
 	num_unmatched_delimiters = 0
+	open_delim_len = len(open_delim)
+	close_delim_len = len(close_delim)
 	while search_end > 0:
 		# TODO: This is probably going to be a perf bottleneck
 		text_before = view.substr(sublime.Region(0, search_end))
@@ -153,6 +184,7 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 			search_end = other_block_end - 1
 			continue
 
+		# One to the left of the _start_ of the delimiter
 		search_end = block_start - 1
 		delim_scopes = view.scope_name(block_start)
 		# TODO: Allow scoping to delimiters inside comments? (e.g. like this)
@@ -199,10 +231,10 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 					#l_debug('Found open {name} at {position}', name=name, position=view.rowcol(other_block_start))
 				#else:
 				#	l_debug('Found commented open {name} at {position}', name=name, position=view.rowcol(other_block_start))
-				search_start = other_block_start + 1
+				search_start = other_block_start + open_delim_len
 				continue
 
-		search_start = block_end + 1
+		search_start = block_end + close_delim_len
 
 		delim_scopes = view.scope_name(block_end)
 		if has_comment_scope(delim_scopes):
@@ -214,17 +246,12 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 
 		num_unmatched_delimiters -= 1
 
+	block_start += open_delim_len
 	l.debug(str(name) + ' scope bounds: ' + str(view.rowcol(block_start)) + ' to ' + str(view.rowcol(block_end)))
 	scope_region = sublime.Region(block_start, block_end)
 	return scope_region
 
-def scoped_quick_select(text_command, view, edit, target_scope):
-	l_debug('view {view_id} scoped_quick_select({target_scope})',
-	        view_id = view.id(), target_scope = target_scope)
-	all_sel = view.sel()
-	first_sel = all_sel[0];
-
-	regex = ''
+def get_pattern_for_cursor():
 	if first_sel.size() < 1:
 		word_around_cursor = view.substr(view.word(first_sel))
 		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
@@ -243,6 +270,16 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 			        selected_text = selected_text,
 			        start_pos = view.rowcol(first_sel.a),
 			        end_pos = view.rowcol(first_sel.b))
+
+	return regex
+
+def scoped_quick_select(text_command, view, edit, target_scope):
+	l_debug('view {view_id} scoped_quick_select({target_scope})',
+	        view_id = view.id(), target_scope = target_scope)
+	all_sel = view.sel()
+	first_sel = all_sel[0];
+
+	regex = get_pattern_for_cursor()
 
 	matches = view.find_all(regex)
 

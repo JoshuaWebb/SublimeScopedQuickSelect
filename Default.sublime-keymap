@@ -6,6 +6,11 @@
     },
 
     {
+        "keys": ["alt+s", "alt+s"],
+        "command": "clear_quick_select_scope",
+    },
+
+    {
         "keys": ["alt+s", "f"],
         "command": "set_quick_select_scope",
         "args": {"scope": "function"},
@@ -24,15 +29,51 @@
     },
 
     {
+        "keys": ["alt+s", "("],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "parentheses"},
+    },
+
+    {
+        "keys": ["alt+s", ")"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "parentheses"},
+    },
+
+    {
+        "keys": ["alt+s", "["],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "square brackets"},
+    },
+
+    {
+        "keys": ["alt+s", "]"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "square brackets"},
+    },
+
+    {
+        "keys": ["alt+s", "<"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "angle brackets"},
+    },
+
+    {
+        "keys": ["alt+s", ">"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "angle brackets"},
+    },
+
+    {
         "keys": ["alt+d"],
         "command": "incremental_quick_select",
-        "args": {"select": "True"},
+        "args": {"add": "True"},
     },
 
     {
         "keys": ["alt+c"],
         "command": "incremental_quick_select",
-        "args": {"select": "False"},
+        "args": {"add": "False"},
     },
 
     {
