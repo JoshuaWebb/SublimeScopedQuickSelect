@@ -59,6 +59,8 @@ def has_comment_scope(scopes):
 	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
 
 def get_quick_select_scope(view, first_sel, target_scope):
+	# TODO: multiple calls in a row to expand the scope out
+	# by one level (e.g. out one block, or pair of matched delimiters)
 	scope_region = sublime.Region(0, 0)
 	if (target_scope == "all"):
 		scope_region = sublime.Region(0, view.size())
@@ -66,6 +68,11 @@ def get_quick_select_scope(view, first_sel, target_scope):
 		l.warn('TODO: implement')
 	elif (target_scope == "parentheses"):
 		scope_region = get_delimited_scope_region(view, first_sel, '(', ')', 'parenthesis')
+	elif (target_scope == "selection"):
+		# TODO: support multiple selections
+		scope_region = first_sel
+	elif (target_scope == "curly braces"):
+		scope_region = get_delimited_scope_region(view, first_sel, '{', '}', 'curly brace')
 	elif (target_scope == "square brackets"):
 		scope_region = get_delimited_scope_region(view, first_sel, '[', ']', 'square bracket')
 	elif (target_scope == "angle brackets"):
@@ -76,11 +83,13 @@ def get_quick_select_scope(view, first_sel, target_scope):
 	elif (target_scope == "double quotes"):
 		# TODO: Need to be careful about escaped quotes here
 		l.warn('TODO: implement')
+	elif (target_scope == "backticks"):
+		# TODO: Need to be careful about escaped backticks here
+		l.warn('TODO: implement')
 	elif (target_scope == "block"):
 		cursor_scopes = view.scope_name(first_sel.begin())
 		num_blocks_of_cursor = cursor_scopes.count("meta.block")
 
-		# TODO: multiple calls in a row to expand out by a block?
 		# TODO: Other language "blocks"
 		search_end = first_sel.begin();
 		block_start = search_end;
