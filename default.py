@@ -410,10 +410,20 @@ def get_delimited_scope_region(view, original_selection, open_delim, close_delim
 	scope_region = sublime.Region(block_start, block_end)
 	return scope_region
 
+def regex_escape(text):
+	# NOTE: Sublime does not use python's regex engine so we can't just use
+	# `regex_escape()` and have it work. Sources seem to suggest that it is
+	# using the BOOST regex engine. So we need to escape the special characters
+	#
+	#    . ^ $ | ( ) [ ] { } * + ? \
+
+	special_regex_chars = re.compile(r'([.^$|()\[\]{}*+?\\])')
+	return special_regex_chars.sub(r'\\\1', text)
+
 def get_pattern_for_selection(view, selection):
 	if selection.size() < 1:
 		word_around_cursor = view.substr(view.word(selection))
-		regex = '\\b' + re.escape(word_around_cursor) + '\\b'
+		regex = '\\b' + regex_escape(word_around_cursor) + '\\b'
 
 		if l.isEnabledFor(logging.DEBUG):
 			l_debug('just a cursor at {cursor_pos} inside the word `{word}`',
@@ -421,7 +431,7 @@ def get_pattern_for_selection(view, selection):
 			        word = word_around_cursor)
 	else:
 		selected_text = view.substr(selection)
-		regex = re.escape(selected_text)
+		regex = regex_escape(selected_text)
 
 		if l.isEnabledFor(logging.DEBUG):
 			l_debug('some text `{selected_text}`'
