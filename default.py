@@ -267,7 +267,7 @@ def incremental_quick_select(text_command, view, edit, add):
 			or view_data.pattern is None):
 			original_selection = view.sel()[-1]
 
-			if not keep_original_pattern:
+			if not view_data.pattern or not keep_original_pattern:
 				view_data.pattern = get_pattern_for_selection(view, original_selection)
 
 			if original_selection.size() < 1:
@@ -277,6 +277,7 @@ def incremental_quick_select(text_command, view, edit, add):
 			else:
 				view_data.original_cursor_location = original_selection.begin()
 				most_recent_cursor_location = original_selection.end()
+				view_data.visited_matches.append(IncrementalMatch(True, original_selection))
 		else:
 			if view_data.visited_matches:
 				most_recent_cursor_location = view_data.visited_matches[-1].region.end()
@@ -293,6 +294,8 @@ def incremental_quick_select(text_command, view, edit, add):
 
 		if next_match_no_wrap.a == -1 and next_match.a == -1:
 			view.window().status_message("Could not automatically match text at cursor")
+			l.debug('unmatched pattern: ' + view_data.pattern)
+			del VIEW_DATA[view.id()]
 			return
 
 		if view_data.wrapped and next_match.begin() >= view_data.original_cursor_location:
@@ -496,7 +499,7 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 		self.registered_views.remove(view.id())
 
 	def on_load_async(self, view):
-		on_load_async(view)
+		pass
 
 	def settings_changed(self, view):
 		self.setup_color_scheme(view)
