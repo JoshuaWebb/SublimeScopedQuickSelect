@@ -75,6 +75,9 @@ class IncrementalQuickSelect(sublime_plugin.TextCommand):
 def has_comment_scope(scopes):
 	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
 
+def has_string_scope(scopes):
+	return any(scope.split('.')[0] == "string" for scope in scopes.split(' '))
+
 def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 	scope_region = sublime.Region(0, 0)
 	if (target_scope == "all"):
@@ -127,6 +130,10 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 				l.debug('commented open brace at ' + str(view.rowcol(block_start)))
 				continue
 
+			if has_string_scope(brace_scopes):
+				l.debug('string open brace at ' + str(view.rowcol(block_start)))
+				continue
+
 			# TODO: Support languages that don't use meta.block
 			# we basically have to match block delimiters ourselves...
 			num_blocks_of_brace = brace_scopes.count("meta.block")
@@ -153,6 +160,10 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 			brace_scopes = view.scope_name(block_end)
 			if has_comment_scope(brace_scopes):
 				l.debug('commented close brace at ' + str(view.rowcol(block_start)))
+				continue
+
+			if has_string_scope(brace_scopes):
+				l.debug('string close brace at ' + str(view.rowcol(block_start)))
 				continue
 
 			num_blocks_of_brace = brace_scopes.count("meta.block")
@@ -380,7 +391,8 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 
 		if other_block_end > block_start:
 			other_delim_scopes = view.scope_name(other_block_end)
-			if not has_comment_scope(other_delim_scopes):
+			if (not has_comment_scope(other_delim_scopes) and
+				not has_string_scope(other_delim_scopes)):
 				num_unmatched_delimiters += 1
 			search_end = other_block_end - 1
 			continue
@@ -394,6 +406,10 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 		# block comment for languages that support them
 		if has_comment_scope(delim_scopes):
 			l.debug('commented open ' + name + ' at ' + str(view.rowcol(block_start)))
+			continue
+
+		if has_string_scope(delim_scopes):
+			l.debug('string open ' + name + ' at ' + str(view.rowcol(block_start)))
 			continue
 
 		if num_unmatched_delimiters == 0:
@@ -427,7 +443,8 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 			other_block_start += search_start
 			if other_block_start < block_end:
 				other_delim_scopes = view.scope_name(other_block_start)
-				if not has_comment_scope(other_delim_scopes):
+				if (not has_comment_scope(other_delim_scopes) and
+					not has_string_scope(other_delim_scopes)):
 					num_unmatched_delimiters += 1
 					#l_debug('Found open {name} at {position}', name=name, position=view.rowcol(other_block_start))
 				#else:
@@ -440,6 +457,10 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 		delim_scopes = view.scope_name(block_end)
 		if has_comment_scope(delim_scopes):
 			#l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
+			continue
+
+		if has_string_scope(delim_scopes):
+			l.debug('string closed ' + name + ' at ' + str(view.rowcol(block_start)))
 			continue
 
 		if num_unmatched_delimiters == 0:
