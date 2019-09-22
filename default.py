@@ -2,6 +2,7 @@ import sublime
 import sublime_plugin
 import logging
 import re
+import uuid
 import os
 import shutil
 from threading import Timer
@@ -10,6 +11,9 @@ DEFAULT_LOG_LEVEL = logging.DEBUG
 l = logging.getLogger(__name__)
 
 PLUGIN_KEY = 'ScopedQuickSelect'
+
+ARG_NAME_TARGET_SCOPE = 'scope'
+
 SCOPE_MARKERS_KEY = PLUGIN_KEY + 'scope_markers'
 
 # TODO: If we made these "immutable" and/or kept copies of these
@@ -40,11 +44,24 @@ class ViewData:
 
 class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
-		scoped_quick_select(self, self.view, edit, args["scope"])
+		scoped_quick_select(self, self.view, edit, args[ARG_NAME_TARGET_SCOPE])
 
 class SetQuickSelectScope(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
-		set_quick_select_scope(self, self.view, edit, args["scope"])
+		token = edit.edit_token
+		self.view.end_edit(edit)
+
+		# NOTE: Make sure each selection counts as it's own undo
+		# Replace the edit (by beginning a new edit with the original
+		# edit's token, and generate an arg with a new uuid so it won't
+		# be grouped together with any previous version)
+		new_args = dict(args)
+		new_args[uuid.uuid4().hex] = 1
+		subedit = self.view.begin_edit(token, self.name(), new_args)
+		try:
+			set_quick_select_scope(self, self.view, edit, args[ARG_NAME_TARGET_SCOPE])
+		finally:
+			self.view.end_edit(subedit)
 
 class ClearQuickSelectScope(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
@@ -58,25 +75,23 @@ class IncrementalQuickSelect(sublime_plugin.TextCommand):
 def has_comment_scope(scopes):
 	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
 
-def get_quick_select_scope(view, first_sel, target_scope):
-	# TODO: multiple calls in a row to expand the scope out
-	# by one level (e.g. out one block, or pair of matched delimiters)
+def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 	scope_region = sublime.Region(0, 0)
 	if (target_scope == "all"):
 		scope_region = sublime.Region(0, view.size())
 	elif (target_scope == "function"):
 		l.warn('TODO: implement')
 	elif (target_scope == "parentheses"):
-		scope_region = get_delimited_scope_region(view, first_sel, '(', ')', 'parenthesis')
+		scope_region = get_delimited_scope_region(view, first_sel, repeat_count, '(', ')', 'parenthesis')
 	elif (target_scope == "selection"):
 		# TODO: support multiple selections
 		scope_region = first_sel
 	elif (target_scope == "curly braces"):
-		scope_region = get_delimited_scope_region(view, first_sel, '{', '}', 'curly brace')
+		scope_region = get_delimited_scope_region(view, first_sel, repeat_count, '{', '}', 'curly brace')
 	elif (target_scope == "square brackets"):
-		scope_region = get_delimited_scope_region(view, first_sel, '[', ']', 'square bracket')
+		scope_region = get_delimited_scope_region(view, first_sel, repeat_count, '[', ']', 'square bracket')
 	elif (target_scope == "angle brackets"):
-		scope_region = get_delimited_scope_region(view, first_sel, '<', '>', 'angle bracket')
+		scope_region = get_delimited_scope_region(view, first_sel, repeat_count, '<', '>', 'angle bracket')
 	elif (target_scope == "single quotes"):
 		# TODO: Need to be careful about escaped quotes here
 		l.warn('TODO: implement')
@@ -89,6 +104,9 @@ def get_quick_select_scope(view, first_sel, target_scope):
 	elif (target_scope == "block"):
 		cursor_scopes = view.scope_name(first_sel.begin())
 		num_blocks_of_cursor = cursor_scopes.count("meta.block")
+
+		# Expand per the repeat count
+		num_blocks_of_cursor = max(num_blocks_of_cursor - repeat_count, 0)
 
 		# TODO: Other language "blocks"
 		search_end = first_sel.begin();
@@ -161,10 +179,29 @@ def clear_quick_select_scope(text_command, view, edit):
 def set_quick_select_scope(text_command, view, edit, target_scope):
 	l_debug('view {view_id} set_quick_select_scope({target_scope})',
 	        view_id = view.id(), target_scope = target_scope)
+
+	command_index = 0
+	repeat_count = 0
+	while True:
+		(previous_command, previous_args, previous_repeat_count) = view.command_history(command_index)
+		#l.debug((previous_command, previous_args, previous_repeat_count))
+
+		if (previous_command == text_command.name() and
+		    previous_args and
+		    ARG_NAME_TARGET_SCOPE in previous_args and
+		    previous_args[ARG_NAME_TARGET_SCOPE] == target_scope):
+
+			repeat_count += previous_repeat_count
+			command_index -= 1
+		else:
+			break
+
+	l_debug('repeat_count: {repeat_count}', repeat_count=repeat_count)
+
 	all_sel = view.sel()
 	first_sel = all_sel[0];
 
-	scope_region = get_quick_select_scope(view, first_sel, target_scope)
+	scope_region = get_quick_select_scope(view, first_sel, target_scope, repeat_count)
 	key = view.id()
 
 	view_data = VIEW_DATA.setdefault(key, ViewData())
@@ -321,7 +358,9 @@ def incremental_quick_select(text_command, view, edit, add):
 	finally:
 		view.end_edit(subedit)
 
-def get_delimited_scope_region(view, original_selection, open_delim, close_delim, name):
+def get_delimited_scope_region(view, original_selection, repeat_count, open_delim, close_delim, name):
+	# TODO: multiple calls in a row to expand the scope out
+	# by one level (i.e. out another pair of matched delimiters)
 	search_end = original_selection.begin()
 	intial_scopes = view.scope_name
 	block_start = search_end
