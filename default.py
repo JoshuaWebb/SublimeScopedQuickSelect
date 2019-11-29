@@ -370,10 +370,8 @@ def incremental_quick_select(text_command, view, edit, add):
 		view.end_edit(subedit)
 
 def get_delimited_scope_region(view, original_selection, repeat_count, open_delim, close_delim, name):
-	# TODO: multiple calls in a row to expand the scope out
-	# by one level (i.e. out another pair of matched delimiters)
 	search_end = original_selection.begin()
-	intial_scopes = view.scope_name
+	open_match_count = 0
 	block_start = search_end
 	num_unmatched_delimiters = 0
 	open_delim_len = len(open_delim)
@@ -394,7 +392,7 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 			if (not has_comment_scope(other_delim_scopes) and
 				not has_string_scope(other_delim_scopes)):
 				num_unmatched_delimiters += 1
-			search_end = other_block_end - 1
+			search_end = other_block_end - close_delim_len
 			continue
 
 		# One to the left of the _start_ of the delimiter
@@ -413,12 +411,16 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 			continue
 
 		if num_unmatched_delimiters == 0:
-			break
-
-		num_unmatched_delimiters -= 1
+			l.debug('match open ' + name + ' at ' + str(view.rowcol(block_start)))
+			if open_match_count >= repeat_count:
+				break
+			open_match_count += 1
+		else:
+			num_unmatched_delimiters -= 1
 
 
 	search_start = original_selection.end();
+	close_match_count = 0
 	block_end = search_start;
 	view_end = view.size()
 	while search_start < view_end:
@@ -456,17 +458,20 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 
 		delim_scopes = view.scope_name(block_end)
 		if has_comment_scope(delim_scopes):
-			#l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
+			l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
 			continue
 
 		if has_string_scope(delim_scopes):
-			l.debug('string closed ' + name + ' at ' + str(view.rowcol(block_start)))
+			l.debug('string closed ' + name + ' at ' + str(view.rowcol(block_end)))
 			continue
 
 		if num_unmatched_delimiters == 0:
-			break
-
-		num_unmatched_delimiters -= 1
+			l.debug('match close ' + name + ' at ' + str(view.rowcol(block_end)))
+			if close_match_count >= repeat_count:
+				break
+			close_match_count += 1
+		else:
+			num_unmatched_delimiters -= 1
 
 	block_start += open_delim_len
 	l.debug(str(name) + ' scope bounds: ' + str(view.rowcol(block_start)) + ' to ' + str(view.rowcol(block_end)))
