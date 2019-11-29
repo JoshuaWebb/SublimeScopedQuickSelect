@@ -21,6 +21,8 @@ SCOPE_MARKERS_KEY = PLUGIN_KEY + 'scope_markers'
 # the whole state instead of trying to re-create it?
 VIEW_DATA = {}
 
+TEMP_VIEWS_SHOWING = set()
+
 class IncrementalMatch:
 	__slots__ = ["selected", "region"]
 
@@ -28,12 +30,30 @@ class IncrementalMatch:
 		self.selected = selected
 		self.region = region
 
+class LayoutInfo:
+	__slots__ = [
+		"original_is_scratch",
+		"active_sheets",
+		"original_layout",
+		"original_sheets",
+	]
+
+	def __init__(self):
+		self.original_is_scratch = False
+		self.active_sheets = None
+		self.original_layout = None
+		self.original_sheets = None
+
 class ViewData:
 	__slots__ = [
 		"original_cursor_location",
 		"visited_matches",
 		"wrapped",
 		"pattern",
+		"original_layout_info",
+		"start_clone",
+		"end_clone",
+		"timer",
 	]
 
 	def __init__(self):
@@ -41,6 +61,10 @@ class ViewData:
 		self.visited_matches = []
 		self.wrapped = False
 		self.pattern = None
+		self.original_layout_info = None
+		self.start_clone = None
+		self.end_clone = None
+		self.timer = None
 
 class ScopedQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
@@ -187,6 +211,145 @@ def clear_quick_select_scope(text_command, view, edit):
 		VIEW_DATA[key] = ViewData()
 		l_debug('Cleared scope for view ' + str(key))
 
+def restore_original_layout(view_data, view):
+	window = view.window()
+	layout_info = view_data.original_layout_info
+	if not view_data.start_clone:
+		return
+
+	view_data.start_clone.close()
+	view_data.end_clone.close()
+	view.set_scratch(False)
+
+	window.set_layout(layout_info.original_layout)
+	for (sheet, (group, index)) in layout_info.original_sheets:
+		window.set_sheet_index(sheet, group, index)
+
+	for sheet in layout_info.active_sheets:
+		if sheet is not None:
+			window.focus_sheet(sheet)
+
+	# NOTE: If there's an empty group before the layout change
+	# it seems that _something_ is causing it to always be
+	# focused after the layout is restored
+	# TODO: investigate what is causing this and if this deferral
+	# is necessary or just a lazy hack
+	sublime.set_timeout(lambda: window.focus_view(view), 0)
+
+	TEMP_VIEWS_SHOWING.discard(view.id())
+	view_data.original_layout_info = None
+	view_data.start_clone = None
+	view_data.end_clone = None
+
+def trigger_restore_original_layout(view_data, original_view):
+	"""This version of the function is just so we can funnel all of the calls
+	   onto the main thread.
+
+	   By running it on the main thread, we don't have to worry about trying
+	   to keep the original view focused at all times (or any other thread-safety
+	   shenanigans), we just need to make sure we leave the correct view focused
+	   at the end."""
+	sublime.set_timeout(lambda: restore_original_layout(view_data, original_view), 0)
+
+def mark_in_view(view, location):
+	view.add_regions(
+	    SCOPE_MARKERS_KEY,
+	    [sublime.Region(location, location)],
+	    'scoped_quick_select.scope_marker',
+	    flags=sublime.DRAW_EMPTY
+	)
+	view.show_at_center(location)
+
+def register_temp_views_for_closure(view):
+	TEMP_VIEWS_SHOWING.add(view.id())
+
+def show_start_and_end_in_other_pane(view, view_data, scope_region):
+	# Debounce the timer
+	if view_data.timer is not None:
+		view_data.timer.cancel()
+
+	window = view.window()
+	l.debug('show_start_and_end')
+
+	# NOTE: This is extremely simplified, but I don't particularly
+	# want to deal with every crazy combination of layouts... hopefully
+	# this should suffice in the general case. (Readdress as necessary).
+	XMIN, YMIN, XMAX, YMAX = list(range(4))
+	active_view_on_lhs = True
+	current_layout = window.get_layout()
+	current_cell = current_layout["cells"][window.active_group()]
+	if (current_cell[XMIN] > 0):
+		active_view_on_lhs = False
+
+	is_first_show = False
+	if view_data.original_layout_info is None:
+		original_layout_info = LayoutInfo()
+		original_layout_info.original_is_scratch = view.is_scratch()
+		original_layout_info.active_sheets = [window.active_sheet_in_group(group) for group in range(0, window.num_groups())]
+		original_layout_info.original_layout = window.get_layout()
+		original_layout_info.original_sheets = [(sheet, window.get_sheet_index(sheet)) for sheet in window.sheets()]
+
+		view.set_scratch(True)
+
+		if not view.visible_region().contains(scope_region):
+			view_data.original_layout_info = original_layout_info
+			is_first_show = True
+
+	if is_first_show:
+		if active_view_on_lhs:
+			view_group = 0
+			start_group = 1
+			end_group = 2
+			window.set_layout({
+				"cols": [0.0, 0.5, 1.0],
+				"rows": [0.0, 0.5, 1.0],
+				"cells": [[0, 0, 1, 2], [1, 0, 2, 1], [1, 1, 2, 2]]
+			})
+		else:
+			start_group = 0
+			end_group = 1
+			view_group = 2
+			window.set_layout({
+				"cols": [0.0, 0.5, 1.0],
+				"rows": [0.0, 0.5, 1.0],
+				"cells": [[0, 0, 1, 1], [0, 1, 1, 2], [1, 0, 2, 2]]
+			})
+
+		if view_data.start_clone is None:
+			window.run_command('clone_file')
+			window.run_command('move_to_group', {'group': start_group})
+			view_data.start_clone = window.active_view()
+
+		if view_data.end_clone is None:
+			window.run_command('clone_file')
+			window.run_command('move_to_group', {'group': end_group})
+			view_data.end_clone = window.active_view()
+
+		window.focus_view(view)
+		window.run_command('move_to_group', {'group': view_group})
+
+	if view_data.original_layout_info is not None:
+		# NOTE: Make sure the view exists and is properly initialized before
+		# we try to jump to the right position, otherwise it seems to get
+		# quite confused.
+		# TODO: Make this more robust... I think we can mark it immediately,
+		# but jumping to the position definitely needs the view to already
+		# know what the visible region is/will be. I don't know if there's
+		# an event/callback we can hook into for that.
+		sublime.set_timeout(lambda: mark_in_view(view_data.start_clone, scope_region.begin()), 50)
+		sublime.set_timeout(lambda: mark_in_view(view_data.end_clone, scope_region.end()), 50)
+
+	if is_first_show:
+		sublime.set_timeout(lambda: register_temp_views_for_closure(view), 50)
+
+	# Auto hide after timeout
+	# NOTE: This is currently disabled, because I think it's better to let
+	# the user scroll around in the begining/end clones if they need to
+	# (for as long as they need to)
+	#restore_layout_timeout_in_seconds = 2
+	#view_data.timer = Timer(restore_layout_timeout_in_seconds, trigger_restore_original_layout, [view_data, view])
+	#view_data.timer.start()
+
 def set_quick_select_scope(text_command, view, edit, target_scope):
 	l_debug('view {view_id} set_quick_select_scope({target_scope})',
 	        view_id = view.id(), target_scope = target_scope)
@@ -222,9 +385,12 @@ def set_quick_select_scope(text_command, view, edit, target_scope):
 	view_data.original_cursor_location = None
 
 	if (scope_region.empty()):
-		VIEW_DATA[key] = ViewData()
-		l.debug('Cleared scope for view ' + str(key))
-		view.erase_regions(SCOPE_MARKERS_KEY)
+		if (repeat_count > 0):
+			l.debug('Kept original scope for view ' + str(key))
+		else:
+			VIEW_DATA[key] = ViewData()
+			l.debug('Cleared scope for view ' + str(key))
+			view.erase_regions(SCOPE_MARKERS_KEY)
 	else:
 		l_debug('Set scope {start} to {end}',
 				start=view.rowcol(scope_region.begin()),
@@ -237,7 +403,10 @@ def set_quick_select_scope(text_command, view, edit, target_scope):
 		                 'scoped_quick_select.scope_marker',
 		                 flags=sublime.DRAW_EMPTY)
 
-		view.show(scope_region.end())
+		# It's redundant to show the start/end if it's based on the selection
+		# from a user; they should already know the extent of the scope.
+		if (target_scope != 'selection'):
+			show_start_and_end_in_other_pane(view, view_data, scope_region)
 
 def get_marked_scope_region(view):
 	marked_regions = view.get_regions(SCOPE_MARKERS_KEY)
@@ -538,7 +707,10 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 	color_schemes = set()
 
 	def __init__(self):
-		pass
+		# NOTE: Clear all scopes from previous sessions
+		for window in sublime.windows():
+			for view in window.views():
+				view.erase_regions(SCOPE_MARKERS_KEY)
 
 	def on_activated_async(self, view):
 		if view.id() not in self.registered_views:
@@ -555,8 +727,6 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 		settings.add_on_change(PLUGIN_KEY, lambda: self.settings_changed(view))
 
 		self.setup_color_scheme(view)
-		view.erase_regions(SCOPE_MARKERS_KEY)
-
 		self.registered_views.add(view.id())
 
 	def on_pre_close(self, view):
@@ -565,6 +735,21 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 
 	def on_load_async(self, view):
 		pass
+
+	def on_modified(self, view):
+		#l_debug('on_modified {view}', view = view)
+		if view.id() in TEMP_VIEWS_SHOWING:
+			trigger_restore_original_layout(VIEW_DATA[view.id()], view)
+
+	def on_text_command(self, view, command_name, args):
+		#l_debug('on_text_command {view}, {command_name}, {args}',
+		#        view = view, command_name = command_name, args = args)
+
+		if command_name != 'set_quick_select_scope':
+			if view.id() in TEMP_VIEWS_SHOWING:
+				trigger_restore_original_layout(VIEW_DATA[view.id()], view)
+
+		return None
 
 	def settings_changed(self, view):
 		self.setup_color_scheme(view)
