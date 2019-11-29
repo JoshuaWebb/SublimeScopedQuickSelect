@@ -556,7 +556,7 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 
 	def on_pre_close(self, view):
 		l.debug('removing view ' + str(view.id()))
-		self.registered_views.remove(view.id())
+		self.registered_views.discard(view.id())
 
 	def on_load_async(self, view):
 		pass
