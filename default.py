@@ -217,9 +217,10 @@ def restore_original_layout(view_data, view):
 	if not view_data.start_clone:
 		return
 
+	view.set_scratch(True)
 	view_data.start_clone.close()
 	view_data.end_clone.close()
-	view.set_scratch(False)
+	view.set_scratch(layout_info.original_is_scratch)
 
 	window.set_layout(layout_info.original_layout)
 	for (sheet, (group, index)) in layout_info.original_sheets:
@@ -288,8 +289,6 @@ def show_start_and_end_in_other_pane(view, view_data, scope_region):
 		original_layout_info.active_sheets = [window.active_sheet_in_group(group) for group in range(0, window.num_groups())]
 		original_layout_info.original_layout = window.get_layout()
 		original_layout_info.original_sheets = [(sheet, window.get_sheet_index(sheet)) for sheet in window.sheets()]
-
-		view.set_scratch(True)
 
 		if not view.visible_region().contains(scope_region):
 			view_data.original_layout_info = original_layout_info
