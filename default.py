@@ -131,6 +131,8 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 	elif (target_scope == "block"):
 		cursor_scopes = view.scope_name(first_sel.begin())
 		num_blocks_of_cursor = cursor_scopes.count("meta.block")
+		if ".block.begin." in cursor_scopes:
+			num_blocks_of_cursor -= 1
 
 		# Expand per the repeat count
 		num_blocks_of_cursor = max(num_blocks_of_cursor - repeat_count, 0)
@@ -148,7 +150,7 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 				l.debug('reached start of buffer')
 				break
 
-			search_end = block_start - 1
+			search_end = block_start
 			brace_scopes = view.scope_name(block_start)
 			if has_comment_scope(brace_scopes):
 				l.debug('commented open brace at ' + str(view.rowcol(block_start)))
@@ -560,11 +562,10 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 			if (not has_comment_scope(other_delim_scopes) and
 				not has_string_scope(other_delim_scopes)):
 				num_unmatched_delimiters += 1
-			search_end = other_block_end - close_delim_len
+			search_end = other_block_end - close_delim_len + 1
 			continue
 
-		# One to the left of the _start_ of the delimiter
-		search_end = block_start - 1
+		search_end = block_start
 		delim_scopes = view.scope_name(block_start)
 		# TODO: Allow scoping to delimiters inside comments? (e.g. like this)
 		# I think I want this to be scoped to a single comment "block"
@@ -609,7 +610,7 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 
 		block_end += search_start
 
-		if other_block_start > 0:
+		if other_block_start > -1 and other_block_start < block_end:
 			other_block_start += search_start
 			if other_block_start < block_end:
 				other_delim_scopes = view.scope_name(other_block_start)
