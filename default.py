@@ -113,7 +113,18 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 	if (target_scope == "all"):
 		scope_region = sublime.Region(0, view.size())
 	elif (target_scope == "function"):
-		l.warn('TODO: implement')
+		# TODO: Support languages that don't use "meta" markup
+		functions = view.find_by_selector("meta.function")
+		methods = view.find_by_selector("meta.methods")
+		current_point = first_sel.begin()
+		matching_functions = [r for r in functions + methods if r.contains(current_point)]
+		l_debug("matching regions: {matching_functions}", matching_functions=matching_functions)
+		if any(matching_functions):
+			scope_region = min(matching_functions, key=lambda x: x.size())
+		else:
+			view.window().status_message('No surrounding function could be found')
+			scope_region = sublime.Region(0, 0)
+
 	elif (target_scope == "parentheses"):
 		scope_region = get_delimited_scope_region(view, first_sel, repeat_count, '(', ')', 'parenthesis')
 	elif (target_scope == "selection"):
@@ -144,6 +155,18 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 		num_blocks_of_cursor = max(num_blocks_of_cursor - repeat_count, 0)
 
 		# TODO: Other language "blocks"
+		# NOTE: Python doesn't actually have "block" scopes, variables
+		# are accessible from their definition until the end of the
+		# function they are defined in. But it might still be useful
+		# to implement this:
+		#
+		#  if x:                   #  if x:|
+		#      scope               #      scope
+		#      t|o         ->      #      to
+		#      this        ->      #      this
+		#  else                    #  |else
+		#      other               #      other
+		#
 		search_end = first_sel.begin();
 		block_start = search_end;
 		while True:

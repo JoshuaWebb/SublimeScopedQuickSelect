@@ -27,8 +27,8 @@ Double tap `alt + s` to clear the currently marked scope
 
 ## This is still very much a WIP
 
-"function" scope has not been implemented, and "block" scope is still in
-early stages. These are intended to be (relatively) language/syntax aware,
+"function" and "block" scopes are still in the early stages.
+These are intended to be (relatively) language/syntax aware,
 similar to an IDE refactor command.
 
 Quoted strings selection also hasn't been implemented yet.
