@@ -332,6 +332,9 @@ def show_start_and_end_in_other_pane(view, view_data, scope_region):
 			window.run_command('move_to_group', {'group': end_group})
 			view_data.end_clone = window.active_view()
 
+		view_data.start_clone.sel().add_all(view.sel())
+		view_data.end_clone.sel().add_all(view.sel())
+
 		window.focus_view(view)
 		window.run_command('move_to_group', {'group': view_group})
 
@@ -695,7 +698,7 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 
 	matches = view.find_all(regex)
 
-	scope_region = get_quick_select_scope(view, selection, target_scope)
+	scope_region = get_quick_select_scope(view, selection, target_scope, 0)
 	if scope_region.empty():
 		scoped_matches = []
 	else:
@@ -704,9 +707,9 @@ def scoped_quick_select(text_command, view, edit, target_scope):
 	scoped_matches = [m for m in scoped_matches if not m.empty()]
 
 	if any(scoped_matches):
-		last_match = scoped_matches[-1]
-		view.show(last_match)
+		view_data = VIEW_DATA.setdefault(view.id(), ViewData())
 		all_sel.add_all(scoped_matches)
+		show_start_and_end_in_other_pane(view, view_data, scope_region)
 
 class ScopedQuickSelectListener(sublime_plugin.EventListener):
 	registered_views = set()

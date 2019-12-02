@@ -1,19 +1,19 @@
 [
     {
         "caption": "ScopedQuickSelect: All",
-        "command": "run_custom_script",
+        "command": "scoped_quick_select",
         "args": {"scope": "all"},
     },
 
     {
         "caption": "ScopedQuickSelect: Block",
-        "command": "run_custom_script",
+        "command": "scoped_quick_select",
         "args": {"scope": "block"},
     },
 
     {
         "caption": "ScopedQuickSelect: Function",
-        "command": "run_custom_script",
-        "args": {"scope": "functioin"},
+        "command": "scoped_quick_select",
+        "args": {"scope": "function"},
     },
 ]
