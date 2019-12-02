@@ -32,6 +32,7 @@ class IncrementalMatch:
 
 class LayoutInfo:
 	__slots__ = [
+		"tabs_visible",
 		"original_is_scratch",
 		"active_sheets",
 		"original_layout",
@@ -39,6 +40,7 @@ class LayoutInfo:
 	]
 
 	def __init__(self):
+		self.tabs_visible = False
 		self.original_is_scratch = False
 		self.active_sheets = None
 		self.original_layout = None
@@ -244,6 +246,23 @@ def clear_quick_select_scope(text_command, view, edit):
 		VIEW_DATA[key] = ViewData()
 		l_debug('Cleared scope for view ' + str(key))
 
+def set_tabs_visible_in_place(view, visible):
+	"""Hide tabs without moving the viewport (physically on the screen)"""
+
+	# TODO: If sublime ever allows us to set tabs visible per view/group
+	# instead of per window, then we only need to show/hide the tabs for
+	# the clone views and hopefully wouldn't have to worry about the
+	# position.
+	window = view.window()
+	(orig_x, orig_y) = view.viewport_position()
+	(origin_w, orig_h) = view.viewport_extent()
+	window.set_tabs_visible(visible)
+	(new_w, new_h) = view.viewport_extent()
+	y_diff = new_h - orig_h
+	new_position = (orig_x, orig_y - y_diff)
+	# NOTE: Doesn't work correctly at the very top of the buffer
+	view.set_viewport_position(new_position, False)
+
 def restore_original_layout(view_data, view):
 	window = view.window()
 	layout_info = view_data.original_layout_info
@@ -269,6 +288,9 @@ def restore_original_layout(view_data, view):
 	# TODO: investigate what is causing this and if this deferral
 	# is necessary or just a lazy hack
 	sublime.set_timeout(lambda: window.focus_view(view), 0)
+
+	if layout_info.tabs_visible:
+		set_tabs_visible_in_place(view, True)
 
 	TEMP_VIEWS_SHOWING.discard(view.id())
 	view_data.original_layout_info = None
@@ -318,6 +340,7 @@ def show_start_and_end_in_other_pane(view, view_data, scope_region):
 	is_first_show = False
 	if view_data.original_layout_info is None:
 		original_layout_info = LayoutInfo()
+		original_layout_info.tabs_visible = window.get_tabs_visible()
 		original_layout_info.original_is_scratch = view.is_scratch()
 		original_layout_info.active_sheets = [window.active_sheet_in_group(group) for group in range(0, window.num_groups())]
 		original_layout_info.original_layout = window.get_layout()
@@ -375,6 +398,9 @@ def show_start_and_end_in_other_pane(view, view_data, scope_region):
 		sublime.set_timeout(lambda: mark_in_view(view_data.end_clone, scope_region.end()), 50)
 
 	if is_first_show:
+		if original_layout_info.tabs_visible:
+			set_tabs_visible_in_place(view, False)
+
 		sublime.set_timeout(lambda: register_temp_views_for_closure(view), 50)
 
 	# Auto hide after timeout
