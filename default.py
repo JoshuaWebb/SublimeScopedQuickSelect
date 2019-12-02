@@ -204,6 +204,8 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 				break
 
 		scope_region = sublime.Region(block_start, block_end)
+	elif (target_scope == "current_marked_scope"):
+		scope_region = get_marked_scope_region(view)
 	else:
 		l.warn('Unimplemented match target_scope: ' + str(target_scope))
 

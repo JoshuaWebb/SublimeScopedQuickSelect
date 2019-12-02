@@ -10,8 +10,15 @@
         "args": {"scope": "function"},
     },
 
+    // Both alt and non alt version so it can be quickly spammed
     {
         "keys": ["alt+s", "b"],
+        "command": "set_quick_select_scope",
+        "args": {"scope": "block"},
+    },
+
+    {
+        "keys": ["alt+s", "alt+b"],
         "command": "set_quick_select_scope",
         "args": {"scope": "block"},
     },
@@ -107,25 +114,25 @@
     },
 
     {
-        "keys": ["primary+shift+alt+d", "primary+shift+alt+a"],
+        "keys": ["primary+shift+alt+d", "a"],
         "command": "scoped_quick_select",
         "args": {"scope": "all"},
     },
 
     {
-        "keys": ["primary+shift+alt+d", "primary+shift+alt+f"],
+        "keys": ["primary+shift+alt+d", "f"],
         "command": "scoped_quick_select",
         "args": {"scope": "function"},
     },
 
     {
-        "keys": ["primary+shift+alt+d", "primary+shift+alt+b"],
+        "keys": ["primary+shift+alt+d", "b"],
         "command": "scoped_quick_select",
         "args": {"scope": "block"},
     },
 
     {
-        "keys": ["primary+shift+alt+d", "primary+shift+alt+/"],
+        "keys": ["primary+shift+alt+d", "/"],
         "command": "scoped_quick_select",
         "args": {"scope": "comment"},
     },

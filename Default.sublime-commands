@@ -16,4 +16,10 @@
         "command": "scoped_quick_select",
         "args": {"scope": "function"},
     },
+
+    {
+        "caption": "ScopedQuickSelect: Current Marked Scope",
+        "command": "scoped_quick_select",
+        "args": {"scope": "current_marked_scope"},
+    },
 ]
