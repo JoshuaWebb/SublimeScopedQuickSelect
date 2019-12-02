@@ -95,6 +95,12 @@ class IncrementalQuickSelect(sublime_plugin.TextCommand):
 	def run(self, edit, **args):
 		incremental_quick_select(self, self.view, edit, args["add"].casefold() == "True".casefold())
 
+class DismissScopePreview(sublime_plugin.TextCommand):
+	def run(self, eidt, **args):
+		view = self.view
+		if view.id() in TEMP_VIEWS_SHOWING:
+			trigger_restore_original_layout(VIEW_DATA[view.id()], view)
+
 # TODO: use `view.match_selector()` instead?
 def has_comment_scope(scopes):
 	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
@@ -748,6 +754,19 @@ class ScopedQuickSelectListener(sublime_plugin.EventListener):
 		if command_name != 'set_quick_select_scope':
 			if view.id() in TEMP_VIEWS_SHOWING:
 				trigger_restore_original_layout(VIEW_DATA[view.id()], view)
+
+		return None
+
+	def on_query_context(self, view, key, operator, operand, match_all):
+		def test(a):
+			if operator == sublime.OP_EQUAL:
+				return a == operand
+			if operator == sublime.OP_NOT_EQUAL:
+				return a != operand
+			return False
+
+		if key == "scoped_quick_select_preview_showing":
+			return test(view.id() in TEMP_VIEWS_SHOWING)
 
 		return None
 

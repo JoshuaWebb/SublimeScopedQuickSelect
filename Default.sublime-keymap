@@ -183,4 +183,9 @@
         "command": "scoped_quick_select",
         "args": {"scope": "backticks"},
     },
+
+    {
+        "keys": ["escape"], "command": "dismiss_scope_preview",
+        "context": [ { "key": "scoped_quick_select_preview_showing" } ]
+    }
 ]
