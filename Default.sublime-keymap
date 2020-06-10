@@ -10,7 +10,7 @@
         "args": {"scope": "function"},
     },
 
-    // Both alt and non alt version so it can be quickly spammed
+    // Both alt and non alt version for blocks so it can be quickly spammed
     {
         "keys": ["alt+s", "b"],
         "command": "set_quick_select_scope",
@@ -120,6 +120,12 @@
     },
 
     {
+        "keys": ["primary+shift+alt+d", "primary+shift+alt+d"],
+        "command": "scoped_quick_select",
+        "args": {"scope": "current_marked_scope"},
+    },
+
+    {
         "keys": ["primary+shift+alt+d", "f"],
         "command": "scoped_quick_select",
         "args": {"scope": "function"},
@@ -186,7 +192,7 @@
     },
 
     {
-        "keys": ["primary+shift+alt+d", "1"],
+        "keys": ["primary+shift+alt+d", "`"],
         "command": "scoped_quick_select",
         "args": {"scope": "backticks"},
     },
