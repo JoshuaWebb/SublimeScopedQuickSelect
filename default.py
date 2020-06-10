@@ -7,7 +7,8 @@ import os
 import shutil
 from threading import Timer
 
-DEFAULT_LOG_LEVEL = logging.DEBUG
+#DEFAULT_LOG_LEVEL = logging.DEBUG
+DEFAULT_LOG_LEVEL = logging.INFO
 l = logging.getLogger(__name__)
 
 PLUGIN_KEY = 'ScopedQuickSelect'
@@ -485,7 +486,7 @@ def get_marked_scope_region(view):
 	return sublime.Region(start.begin(), end.end())
 
 def incremental_quick_select(text_command, view, edit, add):
-	l_debug('view {view_id} incremental_quick_select({add})',
+	l_debug('view {view_id} incremental_quick_select(add = {add})',
 	        view_id = view.id(), add = add)
 
 	view_data = VIEW_DATA.setdefault(view.id(), ViewData())
@@ -493,8 +494,15 @@ def incremental_quick_select(text_command, view, edit, add):
 	external_selection_change = False
 	for visited in view_data.visited_matches:
 		if not (view.sel().contains(visited.region) == visited.selected):
+			l.debug('view.sel() ' + str(view.sel()[0]) + ' does not contain ' + str(visited.region))
 			external_selection_change = True
 			break
+
+	if (len(view.sel()) == 1 and view.sel()[0].empty()):
+		l.debug('single empty selection, blasting view_data')
+		external_selection_change = True
+		view_data = ViewData()
+		VIEW_DATA[view.id()] = view_data
 
 	keep_original_pattern = False
 	undo_count = 0
@@ -534,6 +542,8 @@ def incremental_quick_select(text_command, view, edit, add):
 
 	# TODO: expand any single cursors to the surrounding words,
 	# but then carry on as usual
+	# TODO: Make incremental selection work correctly when you start the cursor
+	#  outside of the scope_region
 
 	token = edit.edit_token
 
@@ -545,8 +555,10 @@ def incremental_quick_select(text_command, view, edit, add):
 		if scope_region is None:
 			scope_region = sublime.Region(0, view.size())
 
+		original_selection = None
 		if (   view_data.original_cursor_location is None
 			or view_data.pattern is None):
+			# Arbitrarily pick the last one
 			original_selection = view.sel()[-1]
 
 			if not view_data.pattern or not keep_original_pattern:
@@ -556,10 +568,14 @@ def incremental_quick_select(text_command, view, edit, add):
 				word_region = view.word(original_selection)
 				view_data.original_cursor_location = word_region.begin()
 				most_recent_cursor_location = word_region.begin()
+				view_data.visited_matches.append(IncrementalMatch(True, original_selection))
 			else:
 				view_data.original_cursor_location = original_selection.begin()
 				most_recent_cursor_location = original_selection.end()
 				view_data.visited_matches.append(IncrementalMatch(True, original_selection))
+				# NOTE: Correct the selection direction of the original selection
+				# if scope_region.contains(original_selection) and add:
+				# 	view.sel().add(sublime.Region(original_selection.begin(), original_selection.end()))
 		else:
 			if view_data.visited_matches:
 				most_recent_cursor_location = view_data.visited_matches[-1].region.end()
@@ -572,7 +588,10 @@ def incremental_quick_select(text_command, view, edit, add):
 			# No match found between `most_recent_cursor_location`
 			# and scope_region.end(), try from the start of the region
 			next_match = view.find(view_data.pattern, scope_region.begin())
-			view_data.wrapped = True
+			view_data.wrapped = most_recent_cursor_location > scope_region.begin()
+			l.debug('next_match_no_wrap not in scope_region')
+			if next_match.a == -1:
+				l.debug('no wrapped next_match either')
 
 		if next_match_no_wrap.a == -1 and next_match.a == -1:
 			view.window().status_message("Could not automatically match text at cursor")
@@ -580,14 +599,39 @@ def incremental_quick_select(text_command, view, edit, add):
 			del VIEW_DATA[view.id()]
 			return
 
+		if next_match.a == -1 or not scope_region.contains(next_match):
+			view.window().status_message("No matches in scoped region")
+			l.debug('next_match is outside scoped region at ' + str(rowcol_one_based(view, next_match.begin())))
+			del VIEW_DATA[view.id()]
+			return
+
 		if view_data.wrapped and next_match.begin() >= view_data.original_cursor_location:
-			if not add:
+			l.debug('wrapped and next_match.begin() >= original_cursor_location')
+			if add:
+				# NOTE: This looks redundant, but it actually corrects the direction
+				#  of the initial selection which is useful when you want to make the
+				#  same change to a bunch of instances of the the same thing you don't
+				#  need to manually adjust the multiple cursors to try to get them to
+				#  have the same relative starting point
+				view.sel().add(next_match)
+			else:
 				if view_data.visited_matches:
 					previous_visit = view_data.visited_matches[-1]
 					previous_visit.selected = False
 					view.sel().subtract(previous_visit.region)
+
 			view.window().status_message("Incremental select complete")
 			return
+
+		if original_selection is not None and not scope_region.contains(original_selection):
+			l.debug('original_selection is outside scope_region')
+			view.sel().subtract(view_data.visited_matches[0].region)
+			view_data.visited_matches.pop()
+			view_data.original_cursor_location = next_match.begin()
+			# Don't count this as wrapping because we just changed the origin
+			view_data.wrapped = False
+
+		l.debug('next_match at ' + str(rowcol_one_based(view, next_match.begin())))
 
 		if add:
 			view.sel().add(next_match)
