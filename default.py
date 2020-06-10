@@ -103,6 +103,10 @@ class DismissScopePreview(sublime_plugin.TextCommand):
 		if view.id() in TEMP_VIEWS_SHOWING:
 			trigger_restore_original_layout(VIEW_DATA[view.id()], view)
 
+def rowcol_one_based(view, position):
+	rowcol_zero_based = view.rowcol(position)
+	return (rowcol_zero_based[0] + 1, rowcol_zero_based[1] + 1)
+
 # TODO: use `view.match_selector()` instead?
 def has_comment_scope(scopes):
 	return any(scope.split('.')[0] == "comment" for scope in scopes.split(' '))
@@ -184,11 +188,11 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 			search_end = block_start
 			brace_scopes = view.scope_name(block_start)
 			if has_comment_scope(brace_scopes):
-				l.debug('commented open brace at ' + str(view.rowcol(block_start)))
+				l.debug('commented open brace at ' + str(rowcol_one_based(view, block_start)))
 				continue
 
 			if has_string_scope(brace_scopes):
-				l.debug('string open brace at ' + str(view.rowcol(block_start)))
+				l.debug('string open brace at ' + str(rowcol_one_based(view, block_start)))
 				continue
 
 			# TODO: Support languages that don't use meta.block
@@ -216,11 +220,11 @@ def get_quick_select_scope(view, first_sel, target_scope, repeat_count):
 
 			brace_scopes = view.scope_name(block_end)
 			if has_comment_scope(brace_scopes):
-				l.debug('commented close brace at ' + str(view.rowcol(block_start)))
+				l.debug('commented close brace at ' + str(rowcol_one_based(view, block_start)))
 				continue
 
 			if has_string_scope(brace_scopes):
-				l.debug('string close brace at ' + str(view.rowcol(block_start)))
+				l.debug('string close brace at ' + str(rowcol_one_based(view, block_start)))
 				continue
 
 			num_blocks_of_brace = brace_scopes.count("meta.block")
@@ -454,7 +458,7 @@ def set_quick_select_scope(text_command, view, edit, target_scope):
 			view.erase_regions(SCOPE_MARKERS_KEY)
 	else:
 		l_debug('Set scope {start} to {end}',
-				start=view.rowcol(scope_region.begin()),
+				start=rowcol_one_based(view, scope_region.begin()),
 				end=view.rowcol(scope_region.end()))
 
 		scope_markers = [sublime.Region(scope_region.begin(), scope_region.begin()),
@@ -632,15 +636,15 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 		# which means consecutive single line comments, or a single
 		# block comment for languages that support them
 		if has_comment_scope(delim_scopes):
-			l.debug('commented open ' + name + ' at ' + str(view.rowcol(block_start)))
+			l.debug('commented open ' + name + ' at ' + str(rowcol_one_based(view, block_start)))
 			continue
 
 		if has_string_scope(delim_scopes):
-			l.debug('string open ' + name + ' at ' + str(view.rowcol(block_start)))
+			l.debug('string open ' + name + ' at ' + str(rowcol_one_based(view, block_start)))
 			continue
 
 		if num_unmatched_delimiters == 0:
-			l.debug('match open ' + name + ' at ' + str(view.rowcol(block_start)))
+			l.debug('match open ' + name + ' at ' + str(rowcol_one_based(view, block_start)))
 			if open_match_count >= repeat_count:
 				break
 			open_match_count += 1
@@ -655,8 +659,8 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 	while search_start < view_end:
 		# l_debug('Searching for close {name} between {start} to {end}',
 		# 		name=name,
-		# 		start=view.rowcol(search_start),
-		# 		end=view.rowcol(view_end))
+		# 		start=rowcol_one_based(view, search_start),
+		# 		end=rowcol_one_based(view, view_end))
 
 		# TODO: This is probably going to be a perf bottleneck
 		text_after = view.substr(sublime.Region(search_start, view_end))
@@ -677,9 +681,9 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 				if (not has_comment_scope(other_delim_scopes) and
 					not has_string_scope(other_delim_scopes)):
 					num_unmatched_delimiters += 1
-					#l_debug('Found open {name} at {position}', name=name, position=view.rowcol(other_block_start))
+					#l_debug('Found open {name} at {position}', name=name, position=rowcol_one_based(view., other_block_start))
 				#else:
-				#	l_debug('Found commented open {name} at {position}', name=name, position=view.rowcol(other_block_start))
+				#	l_debug('Found commented open {name} at {position}', name=name, position=rowcol_one_based(view., other_block_start))
 				search_start = other_block_start + open_delim_len
 				continue
 
@@ -687,15 +691,15 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 
 		delim_scopes = view.scope_name(block_end)
 		if has_comment_scope(delim_scopes):
-			l.debug('commented closed ' + name + ' at ' + str(view.rowcol(block_end)))
+			l.debug('commented closed ' + name + ' at ' + str(rowcol_one_based(view, block_end)))
 			continue
 
 		if has_string_scope(delim_scopes):
-			l.debug('string closed ' + name + ' at ' + str(view.rowcol(block_end)))
+			l.debug('string closed ' + name + ' at ' + str(rowcol_one_based(view, block_end)))
 			continue
 
 		if num_unmatched_delimiters == 0:
-			l.debug('match close ' + name + ' at ' + str(view.rowcol(block_end)))
+			l.debug('match close ' + name + ' at ' + str(rowcol_one_based(view, block_end)))
 			if close_match_count >= repeat_count:
 				break
 			close_match_count += 1
@@ -703,7 +707,11 @@ def get_delimited_scope_region(view, original_selection, repeat_count, open_deli
 			num_unmatched_delimiters -= 1
 
 	block_start += open_delim_len
-	l.debug(str(name) + ' scope bounds: ' + str(view.rowcol(block_start)) + ' to ' + str(view.rowcol(block_end)))
+	l_debug('{name} scope bounds: {start} to {end}',
+			name  = name,
+			start = rowcol_one_based(view, block_start),
+			end   = rowcol_one_based(view, block_end))
+
 	scope_region = sublime.Region(block_start, block_end)
 	return scope_region
 
